@@ -1,176 +1,86 @@
 # Mouse Shifter for Sim Racing
 
-A program that creates a virtual gearbox controlled by mouse movement.
+A C++ application that turns your mouse into a virtual H-pattern gear shifter for sim racing games.
 
-## 🎮 Features
+## Features
 
-- **Mouse-controlled gear shifting** - move cursor over gear zone to shift
-- **Visual Overlay** - displays current gear, status, and zones in bottom-right corner
+- **Virtual H-Pattern Shifter**: Hold Left Mouse Button to "grab" the stick, move your mouse to shift, release to engage gear
+- **Always-On-Top Overlay**: Semi-transparent overlay in bottom-right corner (320px from right edge) showing:
+  - H-pattern diagram with gear positions (R, 1-6, N)
+  - Virtual stick position (red line and head)
+  - Current hovered gear (yellow highlight)
+  - Current engaged gear
+  - Status indicator
+- **Keyboard Simulation**: Automatically sends key presses (1-6, R, N) to your game
 - **Hotkeys**:
-  - `F12` - toggle shifter on/off
-  - `ESC` - exit program
-- **Automatic key simulation** - program sends key presses (1-6, R, N) to the game
-- **H-pattern gearbox layout** - classic gear arrangement
+  - `F12` - Toggle overlay on/off
+  - `ESC` - Exit program
 
-## 📋 Requirements
+## How It Works
 
-- Windows 7/8/10/11
-- CMake 3.15 or higher
-- C++17 compatible compiler (MSVC, MinGW, etc.)
-- CLion (recommended)
+1. **Hold Left Mouse Button** - This "grabs" the virtual shifter stick
+2. **Move your mouse** - The virtual stick follows your mouse movement (relative motion)
+3. **Guide the stick** into the desired gear slot (shown on overlay)
+4. **Release Left Mouse Button** - The gear engages and stick snaps to position
+5. If released between slots, it defaults to **Neutral**
 
-## 🚀 Installation and Build in CLion
+This mimics a real manual transmission shifter!
 
-### Option 1: Open as CMake Project
+## Building in CLion
 
-1. Launch CLion
-2. Select `File` → `Open`
-3. Specify the `MouseShifter` folder
-4. CLion will automatically detect CMakeLists.txt
-5. Wait for CMake indexing to complete
-6. Press `Build` → `Build Project` (or Ctrl+F9)
-7. Run via `Run` → `Run` (or Shift+F10)
+1. Open CLion
+2. `File` → `Open` → Select the `MouseShifter` folder
+3. Wait for CMake to configure
+4. `Build` → `Build Project` (Ctrl+F9)
+5. `Run` → `Run` (Shift+F10)
 
-### Option 2: Manual Console Build
+**Note**: This project uses Windows API and only compiles on Windows.
 
-```bash
-cd MouseShifter
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
-```
+## Configuration
 
-The compiled file will be in `build/bin/MouseShifter.exe`
-
-## 🎯 How to Use
-
-1. **Launch the program** - a console window will open
-2. **Press F12** - to enable the shifter (you'll see "Shifter ENABLED" message)
-3. **Move mouse to bottom-right corner** - gear zones will be there
-4. **Hover cursor over zones** - gear will shift automatically
-5. **Press ESC** - to exit the program
-
-## 📐 Zone Layout
-
-Gear zones are located in the bottom-right corner of the screen:
-
-```
-R   1   3   5   (top row)
-    2   4   6   (bottom row)
-        N       (neutral - center)
-```
-
-Each zone is highlighted:
-- **Green** - inactive zone
-- **Yellow** - active zone (cursor inside)
-
-## ⚙️ Configuration
-
-### Changing Gear Zones
-
-In `src/MouseShifter.cpp`, function `initGearZones()`, you can modify:
-- Zone sizes (`zoneWidth`, `zoneHeight`)
-- Zone positions
-- Number of gears
-
-Example of changing 1st gear zone position:
-```cpp
-// Before
-gearZones.emplace_back(1, L"1", startX, startY + zoneHeight * 1, zoneWidth, zoneHeight);
-
-// After (new position x=100, y=200, width=100, height=60)
-setGearZone(1, 100, 200, 100, 60);
-```
-
-### Changing Hotkeys
-
-In the `MouseShifter` class constructor:
-```cpp
-MouseShifter::MouseShifter() 
-    : currentGear(0), running(false), 
-      toggleKey(VK_F12),  // Change to another key
-      exitKey(VK_ESCAPE), // Change to another key
-      enabled(false) {
-    initGearZones();
-}
-```
-
-Virtual key codes reference: [VK Codes](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes)
-
-### Configuring Key Simulation
-
-In the `shiftGear()` function, you can change which keys are sent to the game:
+You can adjust these values in `src/MouseShifter.cpp`:
 
 ```cpp
-// Example for different key layout
-if (newGear > 0 && newGear <= 6) {
-    int keyCodes[] = {'Q', 'W', 'E', 'A', 'S', 'D'}; // Q,W,E,A,S,D keys
-    simulateKeyPress(keyCodes[newGear - 1]);
-}
+const int MARGIN_RIGHT = 320;     // Distance from right screen edge
+const int MARGIN_BOTTOM = 100;    // Distance from bottom screen edge
+const float DEADZONE_RADIUS = 30.0f;  // Gear slot detection radius
+const float CENTER_DEADZONE = 40.0f;  // Neutral zone radius
 ```
 
-## 🔧 Technical Details
-
-### Project Structure
+## Gear Layout
 
 ```
-MouseShifter/
-├── CMakeLists.txt          # CMake configuration
-├── include/
-│   └── MouseShifter.h      # Class header file
-├── src/
-│   ├── main.cpp            # Entry point
-│   └── MouseShifter.cpp    # Class implementation
-└── README.md               # Documentation
+    R       1       3       5
+            |       |       |
+    --------N-------|-------|
+            |       |       |
+                    2       4       6
 ```
 
-### Windows API Used
+## Troubleshooting
 
-- `GetCursorPos()` - get mouse position
-- `GetDC()` - get device context for drawing
-- `TextOutW()` - output text to screen
-- `Rectangle()` - draw rectangles
-- `SendInput()` - simulate key presses
-- `GetAsyncKeyState()` - check key states
+### Overlay not visible in game
+- The overlay uses `WS_EX_TOPMOST` to stay above all windows including borderless games
+- Press F12 to toggle visibility
+- Make sure the game is not running in exclusive fullscreen mode (use borderless windowed)
 
-## ⚠️ Important Notes
+### Gears not shifting in game
+- Check your game's key bindings - default keys are: 1-6, R, N
+- Run the program as Administrator if needed
+- Some anti-cheat systems may block input simulation
 
-1. **Antivirus** - the program uses low-level Windows calls, which may trigger false positives. Add the project to exceptions.
+### Stick movement feels off
+- Mouse movement is relative - small movements move the stick slightly
+- Practice the H-pattern motions
+- The stick snaps to gear centers when engaged for visual clarity
 
-2. **Run as Administrator** - overlay may require administrator privileges to work correctly.
+## Requirements
 
-3. **Fullscreen Mode** - in some games, overlay may not display in exclusive fullscreen mode. Try Borderless Window mode.
+- Windows 10/11
+- Visual Studio with C++ support (for building)
+- CLion (optional, but recommended)
+- CMake 3.15+
 
-4. **Performance** - program updates every 10ms. If experiencing performance issues, you can increase the delay in the `run()` function.
+## License
 
-## 🛠️ Troubleshooting
-
-### Overlay Not Displaying
-- Run the program as administrator
-- Check that the game is not in exclusive fullscreen mode
-
-### Gears Not Shifting
-- Make sure shifter is enabled (press F12)
-- Check that cursor is inside the gear zone
-
-### Game Not Responding to Shifts
-- Check game control settings
-- Change key codes in `shiftGear()` function
-- Ensure the game is actively accepting keyboard input
-
-## 📝 License
-
-This project was created for educational purposes to enhance Sim Racing experience.
-
-## 🤝 Contributing
-
-Feel free to improve the code for your needs! Main ideas for enhancement:
-- Add configuration file (JSON/XML)
-- GUI for zone configuration
-- Support for different gearbox layouts (sequential, DSG, etc.)
-- Integration with specific games (Assetto Corsa, iRacing, etc.)
-
----
-
-**Happy Racing! 🏁**
+Free to use for personal sim racing projects.

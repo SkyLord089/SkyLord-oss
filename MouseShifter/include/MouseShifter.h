@@ -4,81 +4,57 @@
 #include <windows.h>
 #include <string>
 #include <vector>
-#include <functional>
+#include <map>
 
-// Structure for defining gear zone
-struct GearZone {
-    int id;                 // Gear ID (0 - neutral, 1-6 - gears, -1 - reverse)
-    std::wstring name;      // Gear name
-    RECT rect;              // Rectangular zone on screen
-    bool active;            // Whether zone is active
-    
-    GearZone() : id(0), active(false) {
-        rect = {0, 0, 0, 0};
-    }
-    
-    GearZone(int gearId, const std::wstring& gearName, int x, int y, int width, int height)
-        : id(gearId), name(gearName), active(false) {
-        rect.left = x;
-        rect.top = y;
-        rect.right = x + width;
-        rect.bottom = y + height;
-    }
-    
-    // Check if point is inside zone
-    bool contains(int x, int y) const {
-        return x >= rect.left && x <= rect.right && 
-               y >= rect.top && y <= rect.bottom;
-    }
+enum Gear {
+    GEAR_NONE = -2,
+    GEAR_INVALID = -1,
+    GEAR_N = 0,
+    GEAR_1 = 1,
+    GEAR_2 = 2,
+    GEAR_3 = 3,
+    GEAR_4 = 4,
+    GEAR_5 = 5,
+    GEAR_6 = 6,
+    GEAR_R = 7
 };
 
-// Class for program control
+struct GearSlot {
+    float x;
+    float y;
+};
+
 class MouseShifter {
 public:
     MouseShifter();
-    ~MouseShifter();
+    ~MouseShifter() = default;
     
-    // Initialize gear zones
-    void initGearZones();
-    
-    // Main processing loop
+    void initOverlay();
     void run();
-    
-    // Stop the program
-    void stop();
-    
-    // Set zone for specific gear
-    void setGearZone(int gearId, int x, int y, int width, int height);
-    
-    // Get current gear
     int getCurrentGear() const { return currentGear; }
-    
-    // Configure hotkeys
-    void setToggleKey(int vkCode) { toggleKey = vkCode; }
-    void setExitKey(int vkCode) { exitKey = vkCode; }
+    void toggleEnabled() { isEnabled = !isEnabled; }
+    bool isEnabledState() const { return isEnabled; }
 
 private:
-    std::vector<GearZone> gearZones;
-    int currentGear;
-    bool running;
-    int toggleKey;      // Toggle key (default F12)
-    int exitKey;        // Exit key (default ESC)
-    bool enabled;       // Whether shifter is enabled
+    Gear currentGear;
+    Gear currentHoveredGear;
+    bool isEnabled;
+    bool isGrabbing;
+    HWND hwndOverlay;
+    bool needsRedraw;
+    float virtualStickX;
+    float virtualStickY;
+    std::map<Gear, GearSlot> gearSlots;
+    DWORD lastGearSendTime;
     
-    // Handle mouse movement
-    void processMouseMove();
-    
-    // Shift gear
-    void shiftGear(int newGear);
-    
-    // Draw overlay
-    void drawOverlay();
-    
-    // Get mouse position
-    POINT getMousePosition();
-    
-    // Virtual key press (for shift simulation)
-    void simulateKeyPress(int keyCode);
+    void handleInput();
+    void updateShifterLogic();
+    Gear detectHoveredGear();
+    void engageGear();
+    void renderOverlay();
+    void sendKeyPress(Gear gear);
+    const wchar_t* getGearName(Gear gear);
+    static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 };
 
-#endif // MOUSE_SHIFTER_H
+#endif

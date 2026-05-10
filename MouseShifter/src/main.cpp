@@ -1,10 +1,7 @@
-#include <iostream>
 #include "MouseShifter.h"
+#include <iostream>
 
 int main() {
-    // Set locale for console support
-    setlocale(LC_ALL, "");
-    
     try {
         MouseShifter shifter;
         shifter.run();

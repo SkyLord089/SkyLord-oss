@@ -1,237 +1,358 @@
 #include "MouseShifter.h"
 #include <iostream>
-#include <thread>
-#include <chrono>
+#include <cmath>
 
-MouseShifter::MouseShifter() 
-    : currentGear(0), running(false), toggleKey(VK_F12), exitKey(VK_ESCAPE), enabled(false) {
-    initGearZones();
+const int OVERLAY_WIDTH = 400;
+const int OVERLAY_HEIGHT = 350;
+const int MARGIN_RIGHT = 320;
+const int MARGIN_BOTTOM = 100;
+
+const float DEADZONE_RADIUS = 30.0f;
+const float CENTER_DEADZONE = 40.0f;
+
+MouseShifter::MouseShifter() {
+    currentGear = GEAR_N;
+    isEnabled = false;
+    isGrabbing = false;
+    currentHoveredGear = GEAR_NONE;
+    virtualStickX = 0.0f;
+    virtualStickY = 0.0f;
+    lastGearSendTime = 0;
+    
+    float slotDistX = 60.0f;
+    float slotDistY = 60.0f;
+    
+    gearSlots[GEAR_1] = { -slotDistX, -slotDistY };
+    gearSlots[GEAR_2] = { -slotDistX,  slotDistY };
+    gearSlots[GEAR_3] = {  0.0f,      -slotDistY };
+    gearSlots[GEAR_4] = {  0.0f,       slotDistY };
+    gearSlots[GEAR_5] = {  slotDistX, -slotDistY };
+    gearSlots[GEAR_6] = {  slotDistX,  slotDistY };
+    gearSlots[GEAR_R] = { -slotDistX * 1.8f, -slotDistY };
+    gearSlots[GEAR_N] = {  0.0f,       0.0f };
 }
 
-MouseShifter::~MouseShifter() {
-    stop();
-}
+void MouseShifter::initOverlay() {
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, wndProc, 0L, 0L,
+                      GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr,
+                      L"MouseShifterOverlay", nullptr };
+    RegisterClassEx(&wc);
 
-void MouseShifter::initGearZones() {
-    // Get screen dimensions for automatic zone setup
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-    
-    // Zones will be located in the bottom right corner, but offset from the edge
-    int zoneWidth = 80;
-    int zoneHeight = 50;
-    int marginX = 120;  // Distance from right edge (increased for better positioning)
-    int marginY = 120;  // Distance from bottom edge (increased for better positioning)
-    int startX = screenWidth - zoneWidth - marginX;
-    int startY = screenHeight - zoneHeight * 3 - marginY;
-    
-    // H-pattern gearbox layout (compact 3x3):
-    // R   1   3
-    //     N   4
-    //     2   5   6
-    
-    // Reverse gear (top left corner)
-    gearZones.emplace_back(-1, L"R", startX, startY, zoneWidth, zoneHeight);
-    
-    // 1st gear (right of R)
-    gearZones.emplace_back(1, L"1", startX + zoneWidth + 10, startY, zoneWidth, zoneHeight);
-    
-    // 3rd gear (right of 1)
-    gearZones.emplace_back(3, L"3", startX + (zoneWidth + 10) * 2, startY, zoneWidth, zoneHeight);
-    
-    // Neutral (center, under 1)
-    gearZones.emplace_back(0, L"N", startX + zoneWidth + 10, startY + zoneHeight + 10, zoneWidth, zoneHeight);
-    
-    // 2nd gear (under 1)
-    gearZones.emplace_back(2, L"2", startX + zoneWidth + 10, startY + (zoneHeight + 10) * 2, zoneWidth, zoneHeight);
-    
-    // 4th gear (right of N)
-    gearZones.emplace_back(4, L"4", startX + (zoneWidth + 10) * 2, startY + zoneHeight + 10, zoneWidth, zoneHeight);
-    
-    // 5th gear (under 3)
-    gearZones.emplace_back(5, L"5", startX + (zoneWidth + 10) * 2, startY + (zoneHeight + 10) * 2, zoneWidth, zoneHeight);
-    
-    // 6th gear (right of 5)
-    gearZones.emplace_back(6, L"6", startX + (zoneWidth + 10) * 3, startY + (zoneHeight + 10) * 2, zoneWidth, zoneHeight);
-}
+    hwndOverlay = CreateWindowEx(
+        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST, // TOPMOST ensures it's above everything
+        wc.lpszClassName, L"Sim Racing Shifter Overlay",
+        WS_POPUP,
+        0, 0, OVERLAY_WIDTH, OVERLAY_HEIGHT,
+        nullptr, nullptr, wc.hInstance, nullptr
+    );
 
-void MouseShifter::setGearZone(int gearId, int x, int y, int width, int height) {
-    for (auto& zone : gearZones) {
-        if (zone.id == gearId) {
-            zone.rect.left = x;
-            zone.rect.top = y;
-            zone.rect.right = x + width;
-            zone.rect.bottom = y + height;
-            break;
-        }
-    }
-}
-
-POINT MouseShifter::getMousePosition() {
-    POINT point;
-    GetCursorPos(&point);
-    return point;
-}
-
-void MouseShifter::simulateKeyPress(int keyCode) {
-    // Simulate key press (can be used to send commands to the game)
-    INPUT input = {0};
-    input.type = INPUT_KEYBOARD;
-    input.ki.wVk = keyCode;
-    
-    // Key down
-    SendInput(1, &input, sizeof(INPUT));
-    
-    // Small delay
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    
-    // Key up
-    input.ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput(1, &input, sizeof(INPUT));
-}
-
-void MouseShifter::shiftGear(int newGear) {
-    if (newGear == currentGear) {
-        return;
-    }
-    
-    currentGear = newGear;
-    
-    // Output to console
-    std::wcout << L"Gear: ";
-    if (newGear == 0) {
-        std::wcout << L"Neutral";
-    } else if (newGear == -1) {
-        std::wcout << L"Reverse";
-    } else {
-        std::wcout << newGear;
-    }
-    std::wcout << std::endl;
-    
-    // Simulate key press for the game
-    // For example, if the game uses numbers 1-6 for gears:
-    if (newGear > 0 && newGear <= 6) {
-        int keyCodes[] = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36}; // Keys 1-6
-        simulateKeyPress(keyCodes[newGear - 1]);
-    } else if (newGear == -1) {
-        simulateKeyPress('R'); // R key for reverse
-    } else if (newGear == 0) {
-        simulateKeyPress('N'); // N key for neutral
-    }
-}
-
-void MouseShifter::processMouseMove() {
-    POINT mousePos = getMousePosition();
-    
-    for (const auto& zone : gearZones) {
-        if (zone.contains(mousePos.x, mousePos.y)) {
-            if (!zone.active) {
-                // Mouse entered the zone
-                shiftGear(zone.id);
-                
-                // Mark all zones as inactive
-                for (auto& z : gearZones) {
-                    z.active = false;
-                }
-                
-                // Activate current zone
-                const_cast<GearZone&>(zone).active = true;
-            }
-            break;
-        }
-    }
-}
-
-void MouseShifter::drawOverlay() {
-    // Get device context for the entire screen
-    HDC hdcScreen = GetDC(NULL);
-    
-    if (hdcScreen) {
-        // Get screen dimensions
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    if (hwndOverlay) {
+        int posX = GetSystemMetrics(SM_CXSCREEN) - MARGIN_RIGHT - OVERLAY_WIDTH;
+        int posY = GetSystemMetrics(SM_CYSCREEN) - MARGIN_BOTTOM - OVERLAY_HEIGHT;
         
-        // Text settings
-        SetBkMode(hdcScreen, TRANSPARENT);
-        SetTextColor(hdcScreen, RGB(0, 255, 0)); // Green color
-        
-        // Draw gear zones
-        HPEN pen = CreatePen(PS_SOLID, 2, RGB(0, 255, 0));
-        HBRUSH brush = CreateSolidBrush(RGB(0, 100, 0));
-        HPEN oldPen = (HPEN)SelectObject(hdcScreen, pen);
-        HBRUSH oldBrush = (HBRUSH)SelectObject(hdcScreen, brush);
-        
-        for (const auto& zone : gearZones) {
-            // Draw zone rectangle
-            Rectangle(hdcScreen, zone.rect.left, zone.rect.top, zone.rect.right, zone.rect.bottom);
-            
-            // Display gear name
-            SetTextColor(hdcScreen, zone.active ? RGB(255, 255, 0) : RGB(0, 255, 0));
-            TextOutW(hdcScreen, 
-                     zone.rect.left + 30, 
-                     zone.rect.top + 15, 
-                     zone.name.c_str(), 
-                     zone.name.length());
-        }
-        
-        // Restore old objects
-        SelectObject(hdcScreen, oldPen);
-        SelectObject(hdcScreen, oldBrush);
-        
-        // Delete created objects
-        DeleteObject(pen);
-        DeleteObject(brush);
-        
-        ReleaseDC(NULL, hdcScreen);
+        SetWindowPos(hwndOverlay, HWND_TOPMOST, posX, posY, 0, 0, SWP_NOSIZE);
+        SetLayeredWindowAttributes(hwndOverlay, RGB(0,0,0), 200, LWA_COLORKEY | LWA_ALPHA);
+        ShowWindow(hwndOverlay, SW_SHOW);
+        UpdateWindow(hwndOverlay);
     }
 }
 
 void MouseShifter::run() {
-    running = true;
-    enabled = false;
+    initOverlay();
     
-    std::wcout << L"=== Mouse Shifter for Sim Racing ===" << std::endl;
-    std::wcout << L"F12 - Toggle shifter ON/OFF" << std::endl;
-    std::wcout << L"ESC - Exit program" << std::endl;
-    std::wcout << L"Move mouse over gear zone to shift" << std::endl;
-    std::wcout << std::endl;
-    
-    bool lastToggleState = false;
-    bool lastExitState = false;
-    
-    while (running) {
-        // Check hotkeys
-        bool togglePressed = (GetAsyncKeyState(toggleKey) & 0x8000) != 0;
-        bool exitPressed = (GetAsyncKeyState(exitKey) & 0x8000) != 0;
-        
-        // Handle toggle key
-        if (togglePressed && !lastToggleState) {
-            enabled = !enabled;
-            std::wcout << (enabled ? L"Shifter ENABLED" : L"Shifter DISABLED") << std::endl;
+    std::cout << "=== Mouse Shifter Started ===" << std::endl;
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  - HOLD Left Mouse Button to grab the stick" << std::endl;
+    std::cout << "  - MOVE mouse to shift gears (H-Pattern)" << std::endl;
+    std::cout << "  - RELEASE Left Mouse Button to engage gear" << std::endl;
+    std::cout << "  - F12 to Toggle Overlay Visibility" << std::endl;
+    std::cout << "  - ESC to Exit" << std::endl;
+
+    MSG msg = {};
+    while (true) {
+        if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) break;
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
         }
+
+        handleInput();
         
-        // Handle exit key
-        if (exitPressed && !lastExitState) {
-            running = false;
-            break;
+        if (isEnabled) {
+            updateShifterLogic();
         }
-        
-        lastToggleState = togglePressed;
-        lastExitState = exitPressed;
-        
-        // If shifter is enabled, process mouse movement
-        if (enabled) {
-            processMouseMove();
+
+        if (needsRedraw) {
+            renderOverlay();
+            needsRedraw = false;
         }
-        
-        // Draw overlay
-        drawOverlay();
-        
-        // Small delay to reduce CPU usage
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        Sleep(10);
+    }
+
+    DestroyWindow(hwndOverlay);
+    UnregisterClass(L"MouseShifterOverlay", GetModuleHandle(nullptr));
+}
+
+void MouseShifter::handleInput() {
+    if (GetAsyncKeyState(VK_F12) & 1) {
+        isEnabled = !isEnabled;
+        ShowWindow(hwndOverlay, isEnabled ? SW_SHOW : SW_HIDE);
+        std::cout << (isEnabled ? "Shifter ENABLED" : "Shifter DISABLED") << std::endl;
+        needsRedraw = true;
+    }
+
+    if (GetAsyncKeyState(VK_ESCAPE) & 1) {
+        PostQuitMessage(0);
+    }
+
+    if (GetKeyState(VK_LBUTTON) & 0x8000) {
+        if (!isGrabbing) {
+            isGrabbing = true;
+        }
+    } else {
+        if (isGrabbing) {
+            isGrabbing = false;
+            engageGear();
+        }
     }
 }
 
-void MouseShifter::stop() {
-    running = false;
+void MouseShifter::updateShifterLogic() {
+    if (!isGrabbing) return;
+
+    static POINT lastMousePos = {0, 0};
+    POINT currentMousePos;
+    GetCursorPos(&currentMousePos);
+
+    if (lastMousePos.x == 0 && lastMousePos.y == 0) {
+        lastMousePos = currentMousePos;
+    }
+
+    float deltaX = (float)(currentMousePos.x - lastMousePos.x);
+    float deltaY = (float)(currentMousePos.y - lastMousePos.y);
+
+    virtualStickX += deltaX;
+    virtualStickY += deltaY;
+
+    lastMousePos = currentMousePos;
+
+    Gear hoveredGear = detectHoveredGear();
+    
+    if (hoveredGear != currentHoveredGear) {
+        currentHoveredGear = hoveredGear;
+        needsRedraw = true;
+    }
+}
+
+Gear MouseShifter::detectHoveredGear() {
+    // Define gear order for iteration
+    Gear gearOrder[] = {GEAR_1, GEAR_2, GEAR_3, GEAR_4, GEAR_5, GEAR_6, GEAR_R};
+    
+    for (Gear g : gearOrder) {
+        float dist = sqrt(pow(virtualStickX - gearSlots[g].x, 2) + pow(virtualStickY - gearSlots[g].y, 2));
+        if (dist < DEADZONE_RADIUS) {
+            return g;
+        }
+    }
+    
+    float distCenter = sqrt(pow(virtualStickX, 2) + pow(virtualStickY, 2));
+    if (distCenter < CENTER_DEADZONE) {
+        return GEAR_N;
+    }
+
+    return GEAR_NONE;
+}
+
+void MouseShifter::engageGear() {
+    Gear targetGear = currentHoveredGear;
+
+    if (targetGear == GEAR_NONE || targetGear == GEAR_INVALID) {
+        targetGear = GEAR_N;
+    }
+
+    if (targetGear != currentGear) {
+        currentGear = targetGear;
+        sendKeyPress(currentGear);
+        std::cout << "Gear Engaged: " << getGearName(currentGear) << std::endl;
+        needsRedraw = true;
+    }
+    
+    if (currentGear != GEAR_NONE) {
+        virtualStickX = gearSlots[currentGear].x;
+        virtualStickY = gearSlots[currentGear].y;
+        needsRedraw = true;
+    }
+}
+
+void MouseShifter::sendKeyPress(Gear gear) {
+    WORD key = 0;
+    switch (gear) {
+        case GEAR_1: key = '1'; break;
+        case GEAR_2: key = '2'; break;
+        case GEAR_3: key = '3'; break;
+        case GEAR_4: key = '4'; break;
+        case GEAR_5: key = '5'; break;
+        case GEAR_6: key = '6'; break;
+        case GEAR_R: key = 'R'; break;
+        case GEAR_N: key = 'N'; break;
+        default: return;
+    }
+
+    INPUT inputs[2] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wVk = key;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wVk = key;
+    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    SendInput(2, inputs, sizeof(INPUT));
+}
+
+void MouseShifter::renderOverlay() {
+    if (!hwndOverlay) return;
+
+    HDC hdc = GetDC(hwndOverlay);
+    RECT rect;
+    GetClientRect(hwndOverlay, &rect);
+
+    // Create memory DC for double buffering
+    HDC memDC = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
+    SelectObject(memDC, bmp);
+
+    // Fill with transparent color (matches LWA_COLORKEY)
+    HBRUSH bgBrush = CreateSolidBrush(RGB(0, 0, 0));
+    FillRect(memDC, &rect, bgBrush);
+    DeleteObject(bgBrush);
+
+    // Draw Settings
+    SetBkMode(memDC, TRANSPARENT);
+    
+    // Title
+    HFONT fontTitle = CreateFont(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                 ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    SelectObject(memDC, fontTitle);
+    SetTextColor(memDC, RGB(255, 255, 255));
+    TextOut(memDC, 20, 20, L"MOUSE SHIFTER", 13);
+    DeleteObject(fontTitle);
+
+    // Status
+    HFONT fontSmall = CreateFont(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    SelectObject(memDC, fontSmall);
+    
+    std::wstring statusText = isEnabled ? L"STATUS: ACTIVE" : L"STATUS: DISABLED (Press F12)";
+    SetTextColor(memDC, isEnabled ? RGB(0, 255, 0) : RGB(255, 0, 0));
+    TextOut(memDC, 20, 50, statusText.c_str(), statusText.length());
+
+    // Current Gear Text
+    std::wstring gearText = L"Current Gear: " + std::wstring(getGearName(currentGear));
+    SetTextColor(memDC, RGB(0, 200, 255));
+    TextOut(memDC, 20, 80, gearText.c_str(), gearText.length());
+
+    // Instructions
+    SetTextColor(memDC, RGB(200, 200, 200));
+    TextOut(memDC, 20, 110, L"Hold LMB to move stick", 22);
+    TextOut(memDC, 20, 130, L"Release to engage gear", 22);
+
+    // Draw H-Pattern Base
+    int centerX = rect.right / 2;
+    int centerY = rect.bottom / 2 + 20;
+
+    HPEN linePen = CreatePen(PS_SOLID, 2, RGB(100, 100, 100));
+    SelectObject(memDC, linePen);
+    
+    // Draw Gates (Lines)
+    MoveToEx(memDC, centerX - 60, centerY - 80, nullptr); LineTo(memDC, centerX - 60, centerY + 80);
+    MoveToEx(memDC, centerX, centerY - 80, nullptr);       LineTo(memDC, centerX, centerY + 80);
+    MoveToEx(memDC, centerX + 60, centerY - 80, nullptr);  LineTo(memDC, centerX + 60, centerY + 80);
+    MoveToEx(memDC, centerX - 90, centerY, nullptr);       LineTo(memDC, centerX + 90, centerY);
+
+    // Draw Gear Slots Labels
+    SetTextColor(memDC, RGB(150, 150, 150));
+    auto drawLabel = [&](int x, int y, const wchar_t* txt) {
+        RECT r = { centerX + x - 10, centerY + y - 10, centerX + x + 10, centerY + y + 10 };
+        DrawText(memDC, txt, -1, &r, DT_CENTER | DT_SINGLELINE);
+    };
+
+    // Top Row
+    drawLabel(-108, -60, L"R");
+    drawLabel(-60, -60, L"1");
+    drawLabel(0, -60, L"3");
+    drawLabel(60, -60, L"5");
+    // Bottom Row
+    drawLabel(-60, 60, L"2");
+    drawLabel(0, 60, L"4");
+    drawLabel(60, 60, L"6");
+    // Center
+    drawLabel(0, 0, L"N");
+
+    // Draw Virtual Stick Position
+    if (isEnabled) {
+        int stickScreenX = centerX + (int)virtualStickX;
+        int stickScreenY = centerY + (int)virtualStickY;
+
+        // Draw Stick Line
+        HPEN stickPen = CreatePen(PS_SOLID, 4, RGB(255, 50, 50));
+        SelectObject(memDC, stickPen);
+        MoveToEx(memDC, centerX, centerY, nullptr);
+        LineTo(memDC, stickScreenX, stickScreenY);
+        DeleteObject(stickPen);
+
+        // Draw Stick Head
+        HBRUSH stickBrush = CreateSolidBrush(RGB(255, 50, 50));
+        Ellipse(memDC, stickScreenX - 8, stickScreenY - 8, stickScreenX + 8, stickScreenY + 8);
+        DeleteObject(stickBrush);
+
+        // Highlight active slot
+        if (currentHoveredGear != GEAR_NONE && currentHoveredGear != GEAR_INVALID) {
+            int slotX = centerX + (int)gearSlots[currentHoveredGear].x;
+            int slotY = centerY + (int)gearSlots[currentHoveredGear].y;
+            
+            HPEN highlightPen = CreatePen(PS_SOLID, 2, RGB(255, 255, 0));
+            HBRUSH highlightBrush = CreateHatchBrush(HS_BDIAGONAL, RGB(255, 255, 0));
+            
+            SelectObject(memDC, highlightPen);
+            SelectObject(memDC, highlightBrush);
+            Ellipse(memDC, slotX - 15, slotY - 15, slotX + 15, slotY + 15);
+            
+            DeleteObject(highlightPen);
+            DeleteObject(highlightBrush);
+        }
+    }
+
+    // Copy to screen
+    BitBlt(hdc, 0, 0, rect.right, rect.bottom, memDC, 0, 0, SRCCOPY);
+
+    // Cleanup
+    DeleteDC(memDC);
+    DeleteObject(bmp);
+    ReleaseDC(hwndOverlay, hdc);
+    DeleteObject(linePen);
+    DeleteObject(fontSmall);
+}
+
+LRESULT CALLBACK MouseShifter::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_DESTROY) {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+const wchar_t* MouseShifter::getGearName(Gear gear) {
+    switch (gear) {
+        case GEAR_1: return L"1";
+        case GEAR_2: return L"2";
+        case GEAR_3: return L"3";
+        case GEAR_4: return L"4";
+        case GEAR_5: return L"5";
+        case GEAR_6: return L"6";
+        case GEAR_R: return L"R";
+        case GEAR_N: return L"N";
+        default: return L"-";
+    }
 }
