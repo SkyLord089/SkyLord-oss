@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/MouseShifter.dir/src/main.cpp.o CMakeFiles/MouseShifter.dir/src/MouseShifter.cpp.o -o bin/MouseShifter 

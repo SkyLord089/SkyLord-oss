@@ -12,22 +12,15 @@ cmake_install.cmake
 *.a
 *.lib
 *.so
+*.dylib
 *.dll
 *.exe
 
-# Dependencies
-node_modules/
-venv/
-.venv/
-__pycache__/
-*.egg-info/
-
-# Editor/IDE files
+# IDE specific
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # Logs
 *.log
@@ -42,7 +35,6 @@ coverage/
 htmlcov/
 .coverage
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Temporary files
+*.tmp
 ```

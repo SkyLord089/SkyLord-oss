@@ -213,17 +213,19 @@ void MouseShifter::renderOverlay() {
     if (!hwndOverlay) return;
 
     HDC hdc = GetDC(hwndOverlay);
-    RECT rect;
-    GetClientRect(hwndOverlay, &rect);
+    
+    // Explicitly declare rect variable to avoid taking address of temporary
+    RECT clientRect;
+    GetClientRect(hwndOverlay, &clientRect);
 
     // Create memory DC for double buffering
     HDC memDC = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, clientRect.right, clientRect.bottom);
     SelectObject(memDC, bmp);
 
     // Fill with transparent color (matches LWA_COLORKEY)
     HBRUSH bgBrush = CreateSolidBrush(RGB(0, 0, 0));
-    FillRect(memDC, &rect, bgBrush);
+    FillRect(memDC, &clientRect, bgBrush);
     DeleteObject(bgBrush);
 
     // Draw Settings
@@ -253,14 +255,14 @@ void MouseShifter::renderOverlay() {
     SetTextColor(memDC, RGB(0, 200, 255));
     TextOut(memDC, 20, 80, gearText.c_str(), gearText.length());
 
-    // Instructions
+    // Instructions - Updated for new behavior (no LMB required)
     SetTextColor(memDC, RGB(200, 200, 200));
-    TextOut(memDC, 20, 110, L"Hold LMB to move stick", 22);
-    TextOut(memDC, 20, 130, L"Release to engage gear", 22);
+    TextOut(memDC, 20, 110, L"Just move mouse over gear slots", 32);
+    TextOut(memDC, 20, 130, L"Gear engages automatically", 24);
 
     // Draw H-Pattern Base
-    int centerX = rect.right / 2;
-    int centerY = rect.bottom / 2 + 20;
+    int centerX = clientRect.right / 2;
+    int centerY = clientRect.bottom / 2 + 20;
 
     HPEN linePen = CreatePen(PS_SOLID, 2, RGB(100, 100, 100));
     SelectObject(memDC, linePen);
@@ -325,7 +327,7 @@ void MouseShifter::renderOverlay() {
     }
 
     // Copy to screen
-    BitBlt(hdc, 0, 0, rect.right, rect.bottom, memDC, 0, 0, SRCCOPY);
+    BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom, memDC, 0, 0, SRCCOPY);
 
     // Cleanup
     DeleteDC(memDC);
