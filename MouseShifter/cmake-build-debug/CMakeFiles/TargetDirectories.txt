@@ -1,0 +1,3 @@
+/workspace/MouseShifter/cmake-build-debug/CMakeFiles/MouseShifter.dir
+/workspace/MouseShifter/cmake-build-debug/CMakeFiles/edit_cache.dir
+/workspace/MouseShifter/cmake-build-debug/CMakeFiles/rebuild_cache.dir
